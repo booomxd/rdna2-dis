@@ -166,7 +166,6 @@ Every push to `main` deploys it to GitHub Pages.
 - [x] Web UI and live demo
 - [x] Prebuilt releases
 - [x] Register liveness and EXEC-mask regions
-- [ ] RDNA3 (gfx11)
 
 ## License
 
