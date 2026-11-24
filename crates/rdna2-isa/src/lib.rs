@@ -142,12 +142,35 @@ fn waitcnt(v: u64) -> String {
 
 fn hwreg(v: u64) -> String {
     let (id, offset, size) = (v & 0x3F, v >> 6 & 0x1F, (v >> 11 & 0x1F) + 1);
-    // shortcut: only MODE is named (checked against LLVM); others print as numbers, which LLVM also accepts.
-    let name = if id == 1 { "HW_REG_MODE".to_string() } else { id.to_string() };
+    // LLVM shortens a few of AMD's names.
+    let name = name_in(generated::HWREG_NAMES, id).replace("SHADER_FLAT_SCRATCH", "FLAT_SCR").replace("SHADER_T", "T");
     if offset == 0 && size == 32 {
         format!("hwreg({name})")
     } else {
         format!("hwreg({name}, {offset}, {size})")
+    }
+}
+
+/// gfx10 layout: message in bits 3:0, operation 6:4, GS stream 9:8.
+fn sendmsg(v: u64) -> String {
+    let (msg, op, stream) = (v & 0xF, v >> 4 & 7, v >> 8 & 3);
+    let named = |prefix: &str, n: u64| generated::SENDMSG_NAMES.iter().find(|e| u64::from(e.0) == n && e.1.starts_with(prefix)).map(|e| e.1);
+    let raw = format!("sendmsg({msg}, {op}, {stream})");
+    if v >> 10 != 0 {
+        return v.to_string();
+    }
+    let Some(name) = named("MSG_", msg) else { return raw };
+    match name {
+        // GS_OP_NOP is only valid for GS_DONE; a stream only goes with an emit or cut.
+        "MSG_GS" | "MSG_GS_DONE" => match named("GS_OP_", op) {
+            Some(op_name) if op != 0 => format!("sendmsg({name}, {op_name}, {stream})"),
+            Some(op_name) if name == "MSG_GS_DONE" && stream == 0 => format!("sendmsg({name}, {op_name})"),
+            _ => raw,
+        },
+        // shortcut: MSG_SYSMSG's operations are not named; printed raw.
+        "MSG_SYSMSG" => raw,
+        _ if op == 0 && stream == 0 => format!("sendmsg({name})"),
+        _ => raw,
     }
 }
 
@@ -226,8 +249,9 @@ impl Instruction {
                     _ => format!("{} offset:{offset:#x}", register(v, 1)),
                 }
             }
-            // shortcut: printed as raw values; LLVM names these (sendmsg(...), depctr...).
-            (_, "SENDMSG" | "WAITCNT_DEPCTR" | "CLAUSE" | "VERSION" | "PARAM") => format!("{v:#x}"),
+            (_, "SENDMSG") => sendmsg(v),
+            // shortcut: printed as raw values; LLVM names these (depctr...).
+            (_, "WAITCNT_DEPCTR" | "CLAUSE" | "VERSION" | "PARAM") => format!("{v:#x}"),
             (_, "VGPR") if f == "exp" => {
                 let n = field.trim_start_matches("VSRC").parse::<u64>().unwrap_or(0);
                 if self.field("EN") >> n & 1 == 0 { "off".into() } else { register(256 + v, 1) }
@@ -385,7 +409,8 @@ impl Instruction {
             }
             "ds" => {
                 let (o0, o1) = (self.field("OFFSET0"), self.field("OFFSET1"));
-                if name.contains("2addr") || name.contains("2st64") {
+                // Dual-address ops (ds_read2*, ds_write2*, ds_wrxchg2*) take two 8-bit offsets.
+                if ["ds_read2", "ds_write2", "ds_wrxchg2"].iter().any(|p| name.starts_with(p)) {
                     for (text, o) in [("offset0", o0), ("offset1", o1)] {
                         if o != 0 {
                             m.push(format!("{text}:{o}"));

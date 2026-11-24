@@ -66,18 +66,20 @@ fn operands<'a>(enc: Node<'a, 'a>) -> Vec<Operand<'a>> {
     ops.into_iter().map(|o| o.1).collect()
 }
 
-/// Lowercased names of an operand type's values, filtered by `keep`.
-fn names(isa: Node, ty: &str, keep: impl Fn(u32) -> bool) -> String {
+/// Names of an operand type's values, filtered by `keep`.
+fn names(isa: Node, ty: &str, lower: bool, keep: impl Fn(u32) -> bool) -> String {
     let t = child(isa, "OperandTypes")
         .into_iter()
         .flat_map(|t| children(t, "OperandType"))
         .find(|t| text(*t, "OperandTypeName") == ty)
         .unwrap();
     let mut out = String::new();
-    for v in child(t, "OperandPredefinedValues").into_iter().flat_map(|p| children(p, "PredefinedValue")) {
+    // Values sit under the type, or under its fields (HWREG's ID).
+    for v in t.descendants().filter(|n| n.has_tag_name("PredefinedValue")) {
         let value: u32 = text(v, "Value").parse().unwrap();
         if keep(value) {
-            let _ = writeln!(out, "    ({value}, {:?}),", text(v, "Name").to_lowercase());
+            let name = text(v, "Name");
+            let _ = writeln!(out, "    ({value}, {:?}),", if lower { name.to_lowercase() } else { name.to_string() });
         }
     }
     out
@@ -190,9 +192,13 @@ fn main() {
         out.push_str("        ],\n    },\n");
     }
     out.push_str("];\n\n/// Source operand values that are not plain SGPRs or VGPRs.\npub(crate) static SRC_NAMES: &[(u32, &str)] = &[\n");
-    out.push_str(&names(isa, "OPR_SRC", |v| (106..256).contains(&v)));
+    out.push_str(&names(isa, "OPR_SRC", true, |v| (106..256).contains(&v)));
     out.push_str("];\n\n/// Export targets.\npub(crate) static TGT_NAMES: &[(u32, &str)] = &[\n");
-    out.push_str(&names(isa, "OPR_TGT", |_| true));
+    out.push_str(&names(isa, "OPR_TGT", true, |_| true));
+    out.push_str("];\n\n/// Hardware registers for `hwreg(...)`.\npub(crate) static HWREG_NAMES: &[(u32, &str)] = &[\n");
+    out.push_str(&names(isa, "OPR_HWREG", false, |_| true));
+    out.push_str("];\n\n/// `MSG_*` messages and `GS_OP_*` operations for `sendmsg(...)`.\npub(crate) static SENDMSG_NAMES: &[(u32, &str)] = &[\n");
+    out.push_str(&names(isa, "OPR_SENDMSG", false, |_| true));
     out.push_str("];\n");
     let target = concat!(env!("CARGO_MANIFEST_DIR"), "/../crates/rdna2-isa/src/generated.rs");
     std::fs::write(target, out).unwrap();

@@ -2022,3 +2022,51 @@ pub(crate) static TGT_NAMES: &[(u32, &str)] = &[
     (62, "param30"),
     (63, "param31"),
 ];
+
+/// Hardware registers for `hwreg(...)`.
+pub(crate) static HWREG_NAMES: &[(u32, &str)] = &[
+    (1, "HW_REG_MODE"),
+    (2, "HW_REG_STATUS"),
+    (3, "HW_REG_TRAPSTS"),
+    (5, "HW_REG_GPR_ALLOC"),
+    (6, "HW_REG_LDS_ALLOC"),
+    (7, "HW_REG_IB_STS"),
+    (8, "HW_REG_PC_LO"),
+    (9, "HW_REG_PC_HI"),
+    (10, "HW_REG_INST_DW0"),
+    (13, "HW_REG_IB_DBG1"),
+    (14, "HW_REG_FLUSH_IB"),
+    (15, "HW_REG_SH_MEM_BASES"),
+    (16, "HW_REG_SHADER_TBA_LO"),
+    (17, "HW_REG_SHADER_TBA_HI"),
+    (18, "HW_REG_SHADER_TMA_LO"),
+    (19, "HW_REG_SHADER_TMA_HI"),
+    (20, "HW_REG_SHADER_FLAT_SCRATCH_LO"),
+    (21, "HW_REG_SHADER_FLAT_SCRATCH_HI"),
+    (23, "HW_REG_HW_ID1"),
+    (24, "HW_REG_HW_ID2"),
+    (25, "HW_REG_POPS_PACKER"),
+    (26, "HW_REG_SCHED_MODE"),
+    (27, "HW_REG_VGPR_OFFSET"),
+    (28, "HW_REG_IB_STS2"),
+    (29, "HW_REG_SHADER_CYCLES"),
+];
+
+/// `MSG_*` messages and `GS_OP_*` operations for `sendmsg(...)`.
+pub(crate) static SENDMSG_NAMES: &[(u32, &str)] = &[
+    (0, "GS_OP_NOP"),
+    (1, "GS_OP_CUT"),
+    (2, "GS_OP_EMIT"),
+    (3, "GS_OP_EMIT_CUT"),
+    (1, "MSG_INTERRUPT"),
+    (2, "MSG_GS"),
+    (3, "MSG_GS_DONE"),
+    (4, "MSG_SAVEWAVE"),
+    (5, "MSG_STALL_WAVE_GEN"),
+    (6, "MSG_HALT_WAVES"),
+    (7, "MSG_ORDERED_PS_DONE"),
+    (9, "MSG_GS_ALLOC_REQ"),
+    (10, "MSG_GET_DOORBELL"),
+    (11, "MSG_GET_DDID"),
+    (15, "MSG_SYSMSG"),
+];

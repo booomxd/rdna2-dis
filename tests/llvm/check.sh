@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Assembles each tests/asm/*.s for gfx1030 with LLVM and checks that our
-# disassembler finds the same instructions (mnemonic sequence) as
-# llvm-objdump. Needs llvm-mc, llvm-objcopy and llvm-objdump with AMDGPU.
+# disassembler prints every line exactly as llvm-objdump does. Needs
+# llvm-mc, llvm-objcopy and llvm-objdump with AMDGPU.
 set -euo pipefail
 
 mc=(llvm-mc --triple=amdgcn -mcpu=gfx1030 -mattr=+wavefrontsize32)
@@ -10,8 +10,8 @@ trap 'rm -rf "$work"' EXIT
 cargo build -q -p rdna2-dis
 status=0
 
-# LLVM marks the form it chose (_e32, _e64, _dpp, _sdwa); AMD's names don't.
-normalize() { sed -E 's/_(e32|e64|dpp|sdwa)$//'; }
+# Assembly text only, with runs of spaces and tabs squeezed to one space.
+squeeze() { sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//'; }
 
 for src in tests/asm/*.s; do
     name=$(basename "$src" .s)
@@ -20,10 +20,10 @@ for src in tests/asm/*.s; do
     llvm-objdump -d --mcpu=gfx1030 --mattr=+wavefrontsize32 "$work/$name.o" > "$work/$name.dis"
     # The full listing, for reference in the log.
     grep -E '// [0-9A-Fa-f]+:' "$work/$name.dis"
-    awk '/\/\/ [0-9A-Fa-f]+:/ { print $1 }' "$work/$name.dis" | normalize > "$work/$name.llvm"
-    target/debug/rdna2-dis "$work/$name.bin" | awk '{ print $2 }' | normalize > "$work/$name.ours"
+    grep -E '// [0-9A-Fa-f]+:' "$work/$name.dis" | sed -E 's|//.*||' | squeeze > "$work/$name.llvm"
+    target/debug/rdna2-dis "$work/$name.bin" | sed -E 's|^[0-9a-f]+: ||; s|//.*||' | squeeze > "$work/$name.ours"
     if diff -u "$work/$name.llvm" "$work/$name.ours"; then
-        echo "$name: $(wc -l < "$work/$name.llvm") instructions match"
+        echo "$name: $(wc -l < "$work/$name.llvm") lines match"
     else
         status=1
     fi

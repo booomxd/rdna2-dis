@@ -12,7 +12,7 @@ The disassembler works. Every RDNA2 instruction format, field, opcode and operan
 00000010: image_sample v[0:3], [v4, v6], s[8:15], s[16:19] dmask:0xf dim:SQ_RSRC_IMG_2D // F0800F0A 00820004 00000006
 ```
 
-A unit test checks 48 instructions covering every format against `llvm-objdump`'s text, and CI checks instruction boundaries against LLVM on every push. Wave32 only.
+A unit test checks 48 instructions covering every format against `llvm-objdump`'s text, and CI compares every line of two test files against LLVM on every push. Wave32 only.
 
 ## Regenerating the tables
 
@@ -37,7 +37,7 @@ cargo run -p rdna2-dis -- code.bin
 - [x] Instruction length (literals, DPP/SDWA, MIMG NSA)
 - [x] Operands and modifiers, in `llvm-objdump`'s spelling
 - [x] Instruction boundaries checked against `llvm-objdump` in CI
-- [ ] Full-line comparison against `llvm-objdump` in CI
+- [x] Full-line comparison against `llvm-objdump` in CI
 - [ ] Control-flow graph, register liveness, EXEC-mask regions
 - [ ] Web UI (WASM)
 
