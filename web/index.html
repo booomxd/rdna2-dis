@@ -10,7 +10,7 @@
 <body>
 <header>
   <h1>rdna2-dis</h1>
-  <p>AMD RDNA2 (gfx10.3) disassembler, written in Rust and running here as WebAssembly. Output matches <code>llvm-objdump</code>, and the control-flow graph shows how branches connect. Your code never leaves the browser.</p>
+  <p>AMD RDNA2 (gfx10.3) disassembler, written in Rust and running here as WebAssembly. Output matches <code>llvm-objdump</code>. The control-flow graph shows how branches connect, and liveness shows which registers hold values and where EXEC turns lanes off. Your code never leaves the browser.</p>
   <nav><a href="https://github.com/booomxd/rdna2-dis">Source on GitHub</a></nav>
 </header>
 
@@ -36,7 +36,8 @@
     </fieldset>
     <div class="scroll">
       <table id="listing">
-        <thead><tr><th scope="col">Offset</th><th scope="col">Assembly</th><th scope="col">Encoding</th></tr></thead>
+        <caption id="legend"></caption>
+        <thead><tr><th scope="col">Offset</th><th scope="col" title="Registers live before the instruction: VGPRs (bar) and SGPRs">Live</th><th scope="col">Assembly</th><th scope="col">Encoding</th></tr></thead>
         <tbody></tbody>
       </table>
       <div id="graph" hidden></div>

@@ -37,7 +37,9 @@ fn bits(s: &str) -> u64 {
     u64::from_str_radix(s.trim(), 2).unwrap()
 }
 
-type Operand<'a> = (&'a str, &'a str, u32);
+/// Field, type, size in bits, and flags: 1 read, 2 written, 4 implicit
+/// (not printed, like the SCC an `s_add_u32` sets).
+type Operand<'a> = (&'a str, &'a str, u32, u8);
 
 /// One opcode of a base format, gathered over the format and its variants.
 struct Opcode<'a> {
@@ -50,16 +52,17 @@ struct Opcode<'a> {
     operands: Vec<Operand<'a>>,
 }
 
-/// Explicit operands (field, type, size) in order; the fixed VCC has no field.
+/// Operands in order; the fixed VCC and implicit ones have no field.
 fn operands<'a>(enc: Node<'a, 'a>) -> Vec<Operand<'a>> {
     let mut ops: Vec<(u32, Operand)> = child(enc, "Operands")
         .into_iter()
         .flat_map(|o| children(o, "Operand"))
-        .filter(|o| o.attribute("IsImplicit") != Some("true"))
         .map(|o| {
             let order = o.attribute("Order").unwrap_or("0").parse().unwrap();
             let ty = text(o, "OperandType").trim_start_matches("OPR_");
-            (order, (text(o, "FieldName"), ty, text(o, "OperandSize").parse().unwrap()))
+            let flag = |name, bit| if o.attribute(name) == Some("true") { bit } else { 0 };
+            let flags = flag("Input", 1) | flag("Output", 2) | flag("IsImplicit", 4);
+            (order, (text(o, "FieldName"), ty, text(o, "OperandSize").parse().unwrap(), flags))
         })
         .collect();
     ops.sort_by_key(|o| o.0);

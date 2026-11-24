@@ -4,11 +4,18 @@
 
 use std::fmt;
 
+pub mod analysis;
 pub mod elf;
 mod generated;
 
-/// An explicit operand: field (empty for a fixed VCC/EXEC), type, bits.
-type Operand = (&'static str, &'static str, u32);
+/// An operand: field (empty for a fixed VCC and implicit operands), type,
+/// bits, and flags: [`READ`], [`WRITE`], [`IMPLICIT`].
+type Operand = (&'static str, &'static str, u32, u8);
+
+const READ: u8 = 1;
+const WRITE: u8 = 2;
+/// Not printed, like the SCC that `s_add_u32` sets.
+const IMPLICIT: u8 = 4;
 
 /// One instruction format: its fixed bits, fields and opcodes.
 #[derive(Debug)]
@@ -414,7 +421,10 @@ impl Instruction {
         }
     }
 
-    fn operand(&self, name: &str, (field, ty, size): Operand) -> Option<String> {
+    fn operand(&self, name: &str, (field, ty, size, flags): Operand) -> Option<String> {
+        if flags & IMPLICIT != 0 {
+            return None;
+        }
         let f = self.format.name;
         let v = self.field(field);
         let mut count = u64::from(size.div_ceil(32).max(1));
