@@ -1,0 +1,16 @@
+[package]
+name = "rdna2-wasm"
+description = "RDNA2 disassembler for the browser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rdna2-isa = { path = "../rdna2-isa" }
+# Pinned: CI installs the matching wasm-bindgen-cli.
+wasm-bindgen = "=0.2.130"

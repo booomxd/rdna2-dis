@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rdna2-dis: RDNA2 disassembler in the browser</title>
+<meta name="description" content="Disassemble AMD RDNA2 (gfx10.3) GPU machine code in your browser. Rust compiled to WebAssembly; nothing is uploaded.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>rdna2-dis</h1>
+  <p>AMD RDNA2 (gfx10.3) disassembler, written in Rust and running here as WebAssembly. Output matches <code>llvm-objdump</code>. Your code never leaves the browser.</p>
+  <nav><a href="https://github.com/booomxd/rdna2-dis">Source on GitHub</a></nav>
+</header>
+
+<main>
+  <section class="input">
+    <label for="hex">Machine code as hex dwords (<code>BF810000</code>) or bytes (<code>00 00 81 BF</code>)</label>
+    <textarea id="hex" spellcheck="false" rows="5" placeholder="F4000001 FA000000 BF8C0070 ..."></textarea>
+    <div class="actions">
+      <button id="run" type="button">Disassemble</button>
+      <button id="example" type="button" class="secondary">Load example</button>
+      <label class="file secondary">Open raw .bin<input id="file" type="file"></label>
+      <span id="status" role="status" aria-live="polite"></span>
+    </div>
+    <p class="hint">Ctrl+Enter disassembles. You can also drop a raw code file anywhere on the page.</p>
+  </section>
+
+  <section class="output" aria-label="Disassembly">
+    <table id="listing" hidden>
+      <thead><tr><th scope="col">Offset</th><th scope="col">Assembly</th><th scope="col">Encoding</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+</main>
+
+<footer>Instruction tables generated from AMD's machine-readable ISA specification (MIT). Wave32 only.</footer>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>

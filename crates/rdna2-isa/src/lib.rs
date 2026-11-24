@@ -99,6 +99,22 @@ pub fn decode(words: &[u32]) -> Option<Instruction> {
     })
 }
 
+/// A raw code blob, instruction by instruction: byte offset, assembly in
+/// `llvm-objdump`'s spelling, and the instruction's dwords.
+pub fn disassemble(bytes: &[u8]) -> Vec<(usize, String, Vec<u32>)> {
+    let words: Vec<u32> = bytes.as_chunks::<4>().0.iter().map(|&c| u32::from_le_bytes(c)).collect();
+    let mut lines = Vec::new();
+    let mut i = 0;
+    while i < words.len() {
+        let decoded = decode(&words[i..]);
+        let n = decoded.as_ref().map_or(1, |d| d.dwords.min(words.len() - i));
+        let text = decoded.map_or("<unknown format>".into(), |d| d.to_string());
+        lines.push((i * 4, text, words[i..i + n].to_vec()));
+        i += n;
+    }
+    lines
+}
+
 /// `s5`, `s[4:7]`, `vcc`, `v[0:3]`, `ttmp2`, or a special name (`m0`, `0.5`).
 fn register(value: u64, count: u64) -> String {
     let range = |prefix: &str, n: u64| match count {

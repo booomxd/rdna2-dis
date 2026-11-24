@@ -2,6 +2,8 @@
 
 A disassembler and visualizer for AMD RDNA2 (gfx10.3) GPU machine code, written in Rust from AMD's public ISA documentation. Clean-room: no vendor or game binaries are included.
 
+**[Live demo](https://booomxd.github.io/rdna2-dis/)**: paste hex or drop a raw code file; it runs entirely in your browser as WebAssembly.
+
 ## Status
 
 The disassembler works. Every RDNA2 instruction format, field, opcode and operand list (about 1,100 instructions) is generated from AMD's machine-readable ISA specification. Output is real assembly in `llvm-objdump`'s spelling: registers and ranges, inline and literal constants, VOP3/VOP3P modifiers, DPP16/DPP8/SDWA, memory offsets and flags, image `dmask`/`dim` with NSA addresses, export targets, `s_waitcnt` and branches.
@@ -30,6 +32,16 @@ This rewrites `crates/rdna2-isa/src/generated.rs`. The specification is © Advan
 cargo run -p rdna2-dis -- code.bin
 ```
 
+The web page in `web/` uses the same decoder, compiled to WebAssembly:
+
+```
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.130
+cargo build -p rdna2-wasm --release --target wasm32-unknown-unknown
+wasm-bindgen --target web --no-typescript --out-dir web/pkg target/wasm32-unknown-unknown/release/rdna2_wasm.wasm
+python -m http.server -d web
+```
+
 ## Roadmap
 
 - [x] Format detection
@@ -38,8 +50,9 @@ cargo run -p rdna2-dis -- code.bin
 - [x] Operands and modifiers, in `llvm-objdump`'s spelling
 - [x] Instruction boundaries checked against `llvm-objdump` in CI
 - [x] Full-line comparison against `llvm-objdump` in CI
+- [x] Web UI (WASM): listing viewer
+- [x] Live demo on GitHub Pages
 - [ ] Control-flow graph, register liveness, EXEC-mask regions
-- [ ] Web UI (WASM)
 
 ## License
 
