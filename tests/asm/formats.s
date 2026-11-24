@@ -32,4 +32,20 @@ flat_load_dword v0, v[2:3]
 global_load_dword v0, v[2:3], off
 scratch_load_dword v0, v1, off
 exp mrt0 v0, v1, v2, v3 done vm
+// Operand spellings: branches, waits, modifiers, offsets, wave32 lane masks.
+s_nop 0
+s_branch 2
+s_cbranch_execz 1
+s_waitcnt vmcnt(0) lgkmcnt(0)
+s_load_dwordx2 s[0:1], s[2:3], 0x10
+v_mov_b32 v0, -1
+v_add_f32 v0, 0.5, v1
+v_add_co_u32 v0, vcc_lo, v1, v2
+v_cmp_eq_f32_e64 s0, v0, v1
+v_fma_f32 v0, -v1, |v2|, v3 clamp
+v_mul_f32_e64 v0, v1, v2 mul:2
+ds_write_b32 v1, v0 offset:4
+buffer_store_dword v0, v1, s[4:7], 0 offen offset:16 glc
+global_load_dwordx2 v[0:1], v[2:3], off offset:8
+image_load v[0:3], v[0:1], s[8:15] dmask:0xf dim:SQ_RSRC_IMG_2D
 s_endpgm
