@@ -9,7 +9,7 @@ v_add_f32_sdwa v0, v1, v2 dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:WORD_1 sr
 ds_write2_b32 v1, v2, v3 offset0:4 offset1:8
 ds_read2_b32 v[0:1], v1 offset1:1
 ds_read_b32 v0, v1 offset:65535
-v_add_f16_e64 v0, v1, v2 op_sel:[1,0,0]
+v_fma_f16 v0, v1, v2, v3 op_sel:[1,0,0,0]
 v_pk_add_f16 v0, v1, v2 op_sel:[1,0] op_sel_hi:[0,1]
 v_pk_fma_f16 v0, v1, v2, v3 neg_lo:[1,0,0] neg_hi:[0,0,1]
 v_pk_mul_f16 v0, v1, v2 clamp
