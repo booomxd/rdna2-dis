@@ -11,6 +11,8 @@
   --num: #b9e08a;
   --mod: #c9a4f5;
   --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  /* EXEC region colours. */
+  --r0: #e5484d; --r1: #46a758; --r2: #f2c572; --r3: #7cc4fa; --r4: #c9a4f5; --r5: #f76b15;
 }
 @media (prefers-color-scheme: light) {
   :root {
@@ -98,3 +100,12 @@ tr.label td { padding-top: .6rem; color: var(--op); font-weight: 600; }
 .unknown { color: var(--accent); }
 
 footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
+
+/* Liveness and EXEC regions in the listing. */
+caption { caption-side: top; text-align: left; padding: .55rem .9rem; color: var(--muted); font: .8rem system-ui, sans-serif; border-bottom: 1px solid var(--line); }
+.swatch { display: inline-block; width: .7rem; height: .7rem; border-radius: 2px; margin: 0 .3rem 0 .7rem; vertical-align: -1px; background: var(--region); }
+td.exec { box-shadow: inset 3px 0 0 var(--region, transparent); }
+td.live { color: var(--muted); font-size: 12px; }
+.bar { display: inline-block; width: 3.5rem; height: .45rem; margin-right: .5rem; border-radius: 2px; background: var(--line); vertical-align: 1px; overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--reg); }
+.block .head .facts { font-weight: 400; }

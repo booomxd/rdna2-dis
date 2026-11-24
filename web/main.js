@@ -4,12 +4,12 @@ const $ = (id) => document.getElementById(id);
 const hex = $("hex"), status = $("status"), wave64 = $("wave64");
 const table = $("listing"), body = table.querySelector("tbody"), graph = $("graph");
 
-// A small kernel: a loop that waits on memory, a branch around ALU work,
-// sampling, a store and an export.
-const EXAMPLE = `F4000001 FA000000 BF8C0070 BE800380 80008100 BF0A8800
-BF85FFFD BF880003 06000501 D54B8200 240E0501 7E0002FA FF00B101
-F0800F0A 00820004 00000006 BF8C0070 E0705010 80010001 F800180F 03020100
-BF810000`;
+// A small kernel: a scalar loop, an `if` that turns lanes off with
+// s_and_saveexec and back on with s_or, sampling, a store and an export.
+const EXAMPLE = `F4000001 FA000000 BF8C0070 BE810380 80018101 BF0A8801 BF85FFFD
+7C040300 BE823C6A BF880003 06000501 D54B8200 240E0501 887E027E
+7E0002FA FF00B101 F0800F0A 00820004 00000006 BF8C0070
+E0705010 80010001 F800180F 03020100 BF810000`;
 
 /** The input being shown: bytes and where they came from. */
 let current = null;
@@ -56,20 +56,42 @@ function parse(records) {
     else if (kind === "S") out.symbols.set(parseInt(f[0], 16), [...(out.symbols.get(parseInt(f[0], 16)) ?? []), f[1]]);
     else if (kind === "I") out.insts.push({ offset: parseInt(f[0], 16), text: f[1], words: f[2] });
     else if (kind === "B") out.blocks.push({ first: +f[0], end: +f[1], succ: f[2] ? f[2].split(",").map(Number) : [] });
+    else if (kind === "L") out.insts[+f[0]].live = { v: +f[1], s: +f[2], regs: f[3], exec: f[4] };
   }
+  // One colour per EXEC region other than the starting mask.
+  out.regions = [...new Set(out.insts.map((i) => i.live?.exec).filter((e) => e && e !== "entry"))];
+  out.peak = { v: Math.max(0, ...out.insts.map((i) => i.live?.v ?? 0)), s: Math.max(0, ...out.insts.map((i) => i.live?.s ?? 0)) };
   return out;
 }
 
+/** Live VGPRs as a bar scaled to the peak, then the counts. */
+function liveCell(live, peak) {
+  if (!live) return "<td></td>";
+  const width = peak.v ? Math.round((live.v / peak.v) * 100) : 0;
+  return `<td class="live"><span class="bar"><span style="width:${width}%"></span></span>${live.v}v ${live.s}s</td>`;
+}
+
+function execStyle(live, regions) {
+  const n = live ? regions.indexOf(live.exec) : -1;
+  return n < 0 ? "" : ` style="--region: var(--r${n % 6})"`;
+}
+
+const tooltip = (live) => live ? ` title="${escape(`Live: ${live.regs || "nothing"}\nEXEC: ${live.exec}`)}"` : "";
+
 const pad = (n) => n.toString(16).padStart(8, "0");
 
-function renderListing({ insts, symbols, blocks }) {
+function renderListing({ insts, symbols, blocks, regions, peak }) {
   const starts = new Set(blocks.map((b) => b.first));
   body.innerHTML = insts.map((inst, i) => {
     const labels = (symbols.get(inst.offset) ?? [])
-      .map((name) => `<tr class="label"><td></td><td colspan="2">&lt;${escape(name)}&gt;:</td></tr>`).join("");
+      .map((name) => `<tr class="label"><td></td><td></td><td colspan="2">&lt;${escape(name)}&gt;:</td></tr>`).join("");
     const cls = starts.has(i) && i > 0 ? ' class="block-start"' : "";
-    return `${labels}<tr${cls}><td>${pad(inst.offset)}</td><td>${highlight(inst.text)}</td><td>${inst.words}</td></tr>`;
+    return `${labels}<tr${cls}${tooltip(inst.live)}><td class="exec"${execStyle(inst.live, regions)}>${pad(inst.offset)}</td>` +
+      `${liveCell(inst.live, peak)}<td>${highlight(inst.text)}</td><td>${inst.words}</td></tr>`;
   }).join("");
+  $("legend").innerHTML = regions.length
+    ? `EXEC regions: ${regions.map((r, n) => `<span class="swatch" style="--region: var(--r${n % 6})"></span>${escape(r)}`).join(" ")}`
+    : "EXEC is never changed: every instruction runs with the starting mask.";
 }
 
 /** Basic blocks stacked in address order, with jumps drawn as arrows in a left gutter. */
@@ -80,7 +102,9 @@ function renderGraph({ insts, symbols, blocks }) {
       .map((inst) => `<div><span class="off">${pad(inst.offset)}</span>${highlight(inst.text)}</div>`).join("");
     const exits = b.succ.length ? `→ ${b.succ.map((s) => `B${s}`).join(", ")}` : "end";
     const falls = b.succ.includes(i + 1) && !insts[b.end - 1].text.startsWith("s_branch");
-    return `<div class="block${falls ? " falls" : ""}" id="b${i}"><div class="head"><span>B${i}</span>${names}<span class="exits">${exits}</span></div>${rows}</div>`;
+    const live = insts[b.first].live;
+    const facts = live ? `<span class="facts">live in ${live.v}v ${live.s}s · exec ${escape(live.exec)}</span>` : "";
+    return `<div class="block${falls ? " falls" : ""}" id="b${i}"><div class="head"><span>B${i}</span>${names}${facts}<span class="exits">${exits}</span></div>${rows}</div>`;
   }).join("");
 
   // Edges other than falling through to the next block, each on its own lane
@@ -139,7 +163,8 @@ function render() {
   const { insts, symbols, blocks } = parsed;
   const extra = current.bytes.length % 4 ? `, ${current.bytes.length % 4} trailing byte(s) ignored` : "";
   const syms = symbols.size ? `, ${symbols.size} symbol${symbols.size === 1 ? "" : "s"}` : "";
-  report(`${current.name}: ${insts.length} instructions in ${blocks.length} blocks${syms}${extra}`);
+  const peak = `, peak ${parsed.peak.v} VGPRs and ${parsed.peak.s} SGPRs live`;
+  report(`${current.name}: ${insts.length} instructions in ${blocks.length} blocks${syms}${peak}${extra}`);
 }
 
 const view = () => document.querySelector('input[name="view"]:checked').value;
