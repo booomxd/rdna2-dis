@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 
-/// Lists a raw code blob instruction by instruction: offset, mnemonic,
-/// format and dwords.
+/// Disassembles a raw code blob: `offset: assembly  // dwords`, in
+/// `llvm-objdump`'s spelling.
 fn main() -> ExitCode {
     let Some(path) = std::env::args().nth(1) else {
         eprintln!("usage: rdna2-dis <code.bin>");
@@ -19,12 +19,9 @@ fn main() -> ExitCode {
     while i < words.len() {
         let decoded = rdna2_isa::decode(&words[i..]);
         let n = decoded.as_ref().map_or(1, |d| d.dwords.min(words.len() - i));
-        let label = match &decoded {
-            Some(d) => format!("{:<24} {}", d.name.unwrap_or("<unknown opcode>"), d.format.name),
-            None => "<unknown format>".into(),
-        };
-        let hex: Vec<String> = words[i..i + n].iter().map(|w| format!("{w:08x}")).collect();
-        println!("{:08x}: {label:<36} {}", i * 4, hex.join(" "));
+        let text = decoded.map_or("<unknown format>".into(), |d| d.to_string());
+        let hex: Vec<String> = words[i..i + n].iter().map(|w| format!("{w:08X}")).collect();
+        println!("{:08x}: {text:<60} // {}", i * 4, hex.join(" "));
         i += n;
     }
     ExitCode::SUCCESS
