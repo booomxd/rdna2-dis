@@ -409,7 +409,8 @@ impl Instruction {
             }
             "ds" => {
                 let (o0, o1) = (self.field("OFFSET0"), self.field("OFFSET1"));
-                if name.contains("2addr") || name.contains("2st64") {
+                // Dual-address ops (ds_read2*, ds_write2*, ds_wrxchg2*) take two 8-bit offsets.
+                if ["ds_read2", "ds_write2", "ds_wrxchg2"].iter().any(|p| name.starts_with(p)) {
                     for (text, o) in [("offset0", o0), ("offset1", o1)] {
                         if o != 0 {
                             m.push(format!("{text}:{o}"));
