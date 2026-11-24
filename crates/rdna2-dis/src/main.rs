@@ -14,15 +14,9 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let words: Vec<u32> = bytes.as_chunks::<4>().0.iter().map(|&c| u32::from_le_bytes(c)).collect();
-    let mut i = 0;
-    while i < words.len() {
-        let decoded = rdna2_isa::decode(&words[i..]);
-        let n = decoded.as_ref().map_or(1, |d| d.dwords.min(words.len() - i));
-        let text = decoded.map_or("<unknown format>".into(), |d| d.to_string());
-        let hex: Vec<String> = words[i..i + n].iter().map(|w| format!("{w:08X}")).collect();
-        println!("{:08x}: {text:<60} // {}", i * 4, hex.join(" "));
-        i += n;
+    for (offset, text, words) in rdna2_isa::disassemble(&bytes) {
+        let hex: Vec<String> = words.iter().map(|w| format!("{w:08X}")).collect();
+        println!("{offset:08x}: {text:<60} // {}", hex.join(" "));
     }
     ExitCode::SUCCESS
 }
