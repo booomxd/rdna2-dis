@@ -17,8 +17,10 @@ for src in tests/asm/*.s; do
     name=$(basename "$src" .s)
     "${mc[@]}" -filetype=obj "$src" -o "$work/$name.o"
     llvm-objcopy -O binary --only-section=.text "$work/$name.o" "$work/$name.bin"
-    llvm-objdump -d --mcpu=gfx1030 --mattr=+wavefrontsize32 "$work/$name.o" \
-        | awk '/\/\/ [0-9A-Fa-f]+:/ { print $1 }' | normalize > "$work/$name.llvm"
+    llvm-objdump -d --mcpu=gfx1030 --mattr=+wavefrontsize32 "$work/$name.o" > "$work/$name.dis"
+    # The full listing, for reference in the log.
+    grep -E '// [0-9A-Fa-f]+:' "$work/$name.dis"
+    awk '/\/\/ [0-9A-Fa-f]+:/ { print $1 }' "$work/$name.dis" | normalize > "$work/$name.llvm"
     target/debug/rdna2-dis "$work/$name.bin" | awk '{ print $2 }' | normalize > "$work/$name.ours"
     if diff -u "$work/$name.llvm" "$work/$name.ours"; then
         echo "$name: $(wc -l < "$work/$name.llvm") instructions match"
