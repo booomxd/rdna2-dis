@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use rdna2_isa::{blocks, disassemble, elf};
+use rdna2_isa::{blocks, disassemble, elf, name_targets};
 
 const USAGE: &str = "usage: rdna2-dis [--wave64] [--dot] <code.o | code.hsaco | code.bin>
 
@@ -33,7 +33,8 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let lines = disassemble(code.bytes, flag("--wave64"));
+    let mut lines = disassemble(code.bytes, flag("--wave64"));
+    name_targets(&mut lines, &code.symbols);
     if flag("--dot") {
         let entries: Vec<usize> = code.symbols.iter().map(|s| s.0).collect();
         print!("{}", dot(&lines, &blocks(&lines, &entries)));

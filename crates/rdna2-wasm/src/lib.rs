@@ -16,7 +16,8 @@ pub fn listing(file: &[u8], wave64: bool) -> String {
         Ok(code) => code,
         Err(e) => return format!("E\t{e}\n"),
     };
-    let lines = rdna2_isa::disassemble(code.bytes, wave64);
+    let mut lines = rdna2_isa::disassemble(code.bytes, wave64);
+    rdna2_isa::name_targets(&mut lines, &code.symbols);
     let mut out = String::new();
     for (offset, name) in &code.symbols {
         out += &format!("S\t{offset:x}\t{name}\n");

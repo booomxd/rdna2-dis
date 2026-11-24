@@ -144,6 +144,19 @@ pub fn disassemble(code: &[u8], wave64: bool) -> Vec<Line> {
     lines
 }
 
+/// Names branch targets as LLVM does: `s_branch 3` becomes `s_branch done`
+/// when a symbol `done` sits at the target.
+pub fn name_targets(lines: &mut [Line], symbols: &[(usize, String)]) {
+    for line in lines {
+        if let Flow::Jump(t) | Flow::Branch(t) = line.flow
+            && let Some((_, name)) = symbols.iter().find(|s| s.0 == t)
+            && let Some(space) = line.text.rfind(' ')
+        {
+            line.text.replace_range(space + 1.., name);
+        }
+    }
+}
+
 /// A basic block: instructions that run straight through.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Block {
@@ -280,7 +293,8 @@ fn sendmsg(v: u64) -> String {
 
 /// `s_waitcnt_depctr` fields as LLVM names them: (name, bit offset, width).
 /// A field at all ones does not wait; LLVM prints the ones that do, or all
-/// of them when none does, and falls back to hex when unused bits are clear.
+/// of them when none does. Bits 7:5 belong to no field; LLVM's encoding sets
+/// bit 7 and clears 6:5, and it prints anything else as hex.
 const DEPCTR: [(&str, u64, u64); 6] = [
     ("depctr_sa_sdst", 0, 1),
     ("depctr_va_vdst", 12, 4),
@@ -291,8 +305,7 @@ const DEPCTR: [(&str, u64, u64); 6] = [
 ];
 
 fn depctr(v: u64) -> String {
-    let used = DEPCTR.iter().fold(0, |m, &(_, at, n)| m | ((1 << n) - 1) << at);
-    if v | used != 0xFFFF {
+    if v & 0xE0 != 0x80 || v > 0xFFFF {
         return format!("{v:#x}");
     }
     let fields: Vec<(&str, u64, bool)> = DEPCTR
@@ -709,7 +722,8 @@ mod tests {
         assert_eq!(buffer_format(22).as_deref(), Some("BUF_FMT_32_FLOAT"));
         assert_eq!(buffer_format(77).as_deref(), Some("BUF_FMT_32_32_32_32_FLOAT"));
         assert_eq!(buffer_format(78), None);
-        assert_eq!(depctr(0x0FFF), "depctr_va_vdst(0)");
+        assert_eq!(depctr(0x0F9F), "depctr_va_vdst(0)");
+        assert_eq!(depctr(0xFF82), "depctr_sa_sdst(0) depctr_vm_vsrc(0)");
         assert_eq!(depctr(0x0000), "0x0");
     }
 
