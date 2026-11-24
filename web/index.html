@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>rdna2-dis: RDNA2 disassembler in the browser</title>
-<meta name="description" content="Disassemble AMD RDNA2 (gfx10.3) GPU machine code in your browser. Rust compiled to WebAssembly; nothing is uploaded.">
+<meta name="description" content="Disassemble AMD RDNA2 (gfx10.3) GPU machine code and see its control-flow graph in your browser. Rust compiled to WebAssembly; nothing is uploaded.">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header>
   <h1>rdna2-dis</h1>
-  <p>AMD RDNA2 (gfx10.3) disassembler, written in Rust and running here as WebAssembly. Output matches <code>llvm-objdump</code>. Your code never leaves the browser.</p>
+  <p>AMD RDNA2 (gfx10.3) disassembler, written in Rust and running here as WebAssembly. Output matches <code>llvm-objdump</code>, and the control-flow graph shows how branches connect. Your code never leaves the browser.</p>
   <nav><a href="https://github.com/booomxd/rdna2-dis">Source on GitHub</a></nav>
 </header>
 
@@ -21,21 +21,30 @@
     <div class="actions">
       <button id="run" type="button">Disassemble</button>
       <button id="example" type="button" class="secondary">Load example</button>
-      <label class="file secondary">Open raw .bin<input id="file" type="file"></label>
+      <label class="file secondary">Open file<input id="file" type="file"></label>
+      <label class="check"><input id="wave64" type="checkbox"> Wave64</label>
       <span id="status" role="status" aria-live="polite"></span>
     </div>
-    <p class="hint">Ctrl+Enter disassembles. You can also drop a raw code file anywhere on the page.</p>
+    <p class="hint">Opens ELF code objects (<code>.o</code>, <code>.hsaco</code>) and raw code. Drop a file anywhere on the page; Ctrl+Enter disassembles the text.</p>
   </section>
 
-  <section class="output" aria-label="Disassembly">
-    <table id="listing" hidden>
-      <thead><tr><th scope="col">Offset</th><th scope="col">Assembly</th><th scope="col">Encoding</th></tr></thead>
-      <tbody></tbody>
-    </table>
+  <section id="output" class="output" aria-label="Disassembly" hidden>
+    <fieldset class="views">
+      <legend class="visually-hidden">View</legend>
+      <label><input type="radio" name="view" value="listing" checked> Listing</label>
+      <label><input type="radio" name="view" value="graph"> Control flow</label>
+    </fieldset>
+    <div class="scroll">
+      <table id="listing">
+        <thead><tr><th scope="col">Offset</th><th scope="col">Assembly</th><th scope="col">Encoding</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="graph" hidden></div>
+    </div>
   </section>
 </main>
 
-<footer>Instruction tables generated from AMD's machine-readable ISA specification (MIT). Wave32 only.</footer>
+<footer>Instruction tables generated from AMD's machine-readable ISA specification (MIT). Every printed line is checked against <code>llvm-objdump</code> in CI.</footer>
 
 <script type="module" src="main.js"></script>
 </body>
