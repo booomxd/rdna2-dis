@@ -1,0 +1,10 @@
+[package]
+name = "rdna2-dis"
+description = "Disassembler for AMD RDNA2 (gfx10.3) GPU machine code"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+rdna2-isa = { path = "../rdna2-isa" }
