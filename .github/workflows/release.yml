@@ -1,0 +1,53 @@
+name: release
+
+# Pushing a tag like v0.1.0 builds the command-line tool for each platform
+# and publishes a GitHub release with the archives attached.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu, exe: rdna2-dis }
+          - { os: windows-2022, target: x86_64-pc-windows-msvc, exe: rdna2-dis.exe }
+          - { os: macos-14, target: aarch64-apple-darwin, exe: rdna2-dis }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build -p rdna2-dis --release --locked
+      - name: Package
+        shell: bash
+        run: |
+          dir="rdna2-dis-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir "$dir"
+          cp "target/release/${{ matrix.exe }}" README.md LICENSE "$dir/"
+          if [ "$RUNNER_OS" = Windows ]; then
+            7z a -bso0 "$dir.zip" "$dir"
+          else
+            tar czf "$dir.tar.gz" "$dir"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            rdna2-dis-*.tar.gz
+            rdna2-dis-*.zip
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - run: sha256sum rdna2-dis-* > SHA256SUMS
+      - run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes rdna2-dis-* SHA256SUMS
+        env:
+          GH_TOKEN: ${{ github.token }}
