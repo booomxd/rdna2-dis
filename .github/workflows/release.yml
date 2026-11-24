@@ -1,10 +1,11 @@
 name: release
 
-# Pushing a tag like v0.1.0 builds the command-line tool for each platform
-# and publishes a GitHub release with the archives attached.
+# Publishing a release (for example `gh release create v0.3.0 --generate-notes`)
+# builds the command-line tool for each platform and attaches the archives.
+# The release itself is created by you, so GitHub shows you as its author.
 on:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
 
 permissions:
   contents: write
@@ -40,7 +41,7 @@ jobs:
             rdna2-dis-*.tar.gz
             rdna2-dis-*.zip
 
-  publish:
+  attach:
     needs: build
     runs-on: ubuntu-24.04
     steps:
@@ -48,6 +49,6 @@ jobs:
         with:
           merge-multiple: true
       - run: sha256sum rdna2-dis-* > SHA256SUMS
-      - run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes rdna2-dis-* SHA256SUMS
+      - run: gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" rdna2-dis-* SHA256SUMS --clobber
         env:
           GH_TOKEN: ${{ github.token }}
