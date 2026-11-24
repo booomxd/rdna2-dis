@@ -4,6 +4,7 @@
 
 use std::fmt;
 
+pub mod elf;
 mod generated;
 
 /// An explicit operand: field (empty for a fixed VCC/EXEC), type, bits.
@@ -65,6 +66,8 @@ pub struct Instruction {
     pub dwords: usize,
     /// The instruction's dwords, as many of them as were given.
     pub words: Vec<u32>,
+    /// Print lane masks for 64 lanes (`vcc`, `s[0:1]`) instead of 32 (`vcc_lo`, `s0`).
+    pub wave64: bool,
     operands: &'static [Operand],
 }
 
@@ -96,23 +99,102 @@ pub fn decode(words: &[u32]) -> Option<Instruction> {
         dwords,
         words: words[..dwords.min(words.len())].to_vec(),
         operands: entry.map_or(&[], |o| o.3),
+        wave64: false,
     })
 }
 
-/// A raw code blob, instruction by instruction: byte offset, assembly in
-/// `llvm-objdump`'s spelling, and the instruction's dwords.
-pub fn disassemble(bytes: &[u8]) -> Vec<(usize, String, Vec<u32>)> {
-    let words: Vec<u32> = bytes.as_chunks::<4>().0.iter().map(|&c| u32::from_le_bytes(c)).collect();
+/// How control leaves an instruction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flow {
+    /// On to the next instruction.
+    Next,
+    /// Always to this byte offset (`s_branch`).
+    Jump(usize),
+    /// To this byte offset or on to the next (`s_cbranch_*`).
+    Branch(usize),
+    /// Nowhere known: the program ends or jumps indirectly (`s_setpc_b64`).
+    Stop,
+}
+
+/// One disassembled instruction.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Line {
+    /// Byte offset in the code.
+    pub offset: usize,
+    /// Assembly in `llvm-objdump`'s spelling.
+    pub text: String,
+    pub words: Vec<u32>,
+    pub flow: Flow,
+}
+
+/// A code blob, instruction by instruction.
+pub fn disassemble(code: &[u8], wave64: bool) -> Vec<Line> {
+    let words: Vec<u32> = code.as_chunks::<4>().0.iter().map(|&c| u32::from_le_bytes(c)).collect();
     let mut lines = Vec::new();
     let mut i = 0;
     while i < words.len() {
-        let decoded = decode(&words[i..]);
+        let decoded = decode(&words[i..]).map(|d| Instruction { wave64, ..d });
         let n = decoded.as_ref().map_or(1, |d| d.dwords.min(words.len() - i));
+        let offset = i * 4;
+        let flow = decoded.as_ref().map_or(Flow::Next, |d| d.flow(offset));
         let text = decoded.map_or("<unknown format>".into(), |d| d.to_string());
-        lines.push((i * 4, text, words[i..i + n].to_vec()));
+        lines.push(Line { offset, text, words: words[i..i + n].to_vec(), flow });
         i += n;
     }
     lines
+}
+
+/// A basic block: instructions that run straight through.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Block {
+    /// Indices into the lines.
+    pub lines: std::ops::Range<usize>,
+    /// Indices of the blocks control can go to next.
+    pub successors: Vec<usize>,
+}
+
+/// The control-flow graph of `lines`. A block also starts at each offset in
+/// `entries` (function symbols). Branches to offsets that are not the start
+/// of an instruction are dropped.
+pub fn blocks(lines: &[Line], entries: &[usize]) -> Vec<Block> {
+    let index = |offset: usize| lines.binary_search_by_key(&offset, |l| l.offset).ok();
+    let mut starts = vec![false; lines.len()];
+    for (i, line) in lines.iter().enumerate() {
+        if i == 0 || entries.contains(&line.offset) {
+            starts[i] = true;
+        }
+        if let Flow::Jump(t) | Flow::Branch(t) = line.flow
+            && let Some(t) = index(t)
+        {
+            starts[t] = true;
+        }
+        if line.flow != Flow::Next && i + 1 < lines.len() {
+            starts[i + 1] = true;
+        }
+    }
+    let first: Vec<usize> = (0..lines.len()).filter(|&i| starts[i]).collect();
+    let block_of = |line: usize| first.partition_point(|&f| f <= line) - 1;
+    first
+        .iter()
+        .enumerate()
+        .map(|(b, &start)| {
+            let end = first.get(b + 1).copied().unwrap_or(lines.len());
+            let last = &lines[end - 1];
+            let next = (end < lines.len()).then_some(b + 1);
+            let target = |t: usize| index(t).map(block_of);
+            let successors = match last.flow {
+                Flow::Next => next.into_iter().collect(),
+                Flow::Jump(t) => target(t).into_iter().collect(),
+                Flow::Branch(t) => {
+                    let mut s: Vec<usize> = target(t).into_iter().chain(next).collect();
+                    s.dedup();
+                    s
+                }
+                Flow::Stop => Vec::new(),
+            };
+            Block { lines: start..end, successors }
+        })
+        .collect()
 }
 
 /// `s5`, `s[4:7]`, `vcc`, `v[0:3]`, `ttmp2`, or a special name (`m0`, `0.5`).
@@ -183,11 +265,75 @@ fn sendmsg(v: u64) -> String {
             Some(op_name) if name == "MSG_GS_DONE" && stream == 0 => format!("sendmsg({name}, {op_name})"),
             _ => raw,
         },
-        // shortcut: MSG_SYSMSG's operations are not named; printed raw.
+        // HOST_TRAP_ACK (3) is gone since gfx9.
+        "MSG_SYSMSG" if stream == 0 => match op {
+            1 => format!("sendmsg({name}, SYSMSG_OP_ECC_ERR_INTERRUPT)"),
+            2 => format!("sendmsg({name}, SYSMSG_OP_REG_RD)"),
+            4 => format!("sendmsg({name}, SYSMSG_OP_TTRACE_PC)"),
+            _ => raw,
+        },
         "MSG_SYSMSG" => raw,
         _ if op == 0 && stream == 0 => format!("sendmsg({name})"),
         _ => raw,
     }
+}
+
+/// `s_waitcnt_depctr` fields as LLVM names them: (name, bit offset, width).
+/// A field at all ones does not wait; LLVM prints the ones that do, or all
+/// of them when none does, and falls back to hex when unused bits are clear.
+const DEPCTR: [(&str, u64, u64); 6] = [
+    ("depctr_sa_sdst", 0, 1),
+    ("depctr_va_vdst", 12, 4),
+    ("depctr_va_sdst", 9, 3),
+    ("depctr_va_ssrc", 8, 1),
+    ("depctr_va_vcc", 1, 1),
+    ("depctr_vm_vsrc", 2, 3),
+];
+
+fn depctr(v: u64) -> String {
+    let used = DEPCTR.iter().fold(0, |m, &(_, at, n)| m | ((1 << n) - 1) << at);
+    if v | used != 0xFFFF {
+        return format!("{v:#x}");
+    }
+    let fields: Vec<(&str, u64, bool)> = DEPCTR
+        .iter()
+        .map(|&(name, at, n)| (name, v >> at & ((1 << n) - 1), v >> at & ((1 << n) - 1) == (1 << n) - 1))
+        .collect();
+    let waits = fields.iter().any(|f| !f.2);
+    let shown: Vec<String> = fields.iter().filter(|f| !waits || !f.2).map(|f| format!("{}({})", f.0, f.1)).collect();
+    shown.join(" ")
+}
+
+/// gfx10 unified buffer formats, numbered in this order from 1:
+/// component layouts, each with its numeric types.
+fn buffer_format(n: u64) -> Option<String> {
+    const SIX: &[&str] = &["UNORM", "SNORM", "USCALED", "SSCALED", "UINT", "SINT"];
+    const SEVEN: &[&str] = &["UNORM", "SNORM", "USCALED", "SSCALED", "UINT", "SINT", "FLOAT"];
+    const INT_FLOAT: &[&str] = &["UINT", "SINT", "FLOAT"];
+    let layouts: [(&str, &[&str]); 14] = [
+        ("8", SIX),
+        ("16", SEVEN),
+        ("8_8", SIX),
+        ("32", INT_FLOAT),
+        ("16_16", SEVEN),
+        ("10_11_11", SEVEN),
+        ("11_11_10", SEVEN),
+        ("10_10_10_2", SIX),
+        ("2_10_10_10", SIX),
+        ("8_8_8_8", SIX),
+        ("32_32", INT_FLOAT),
+        ("16_16_16_16", SEVEN),
+        ("32_32_32", INT_FLOAT),
+        ("32_32_32_32", INT_FLOAT),
+    ];
+    let mut i = n.checked_sub(1)? as usize;
+    for (layout, types) in layouts {
+        if i < types.len() {
+            return Some(format!("BUF_FMT_{layout}_{}", types[i]));
+        }
+        i -= types.len();
+    }
+    None
 }
 
 /// Address VGPRs of an image instruction, from its name and dimension.
@@ -211,6 +357,21 @@ fn image_addresses(name: &str, dim: usize) -> u64 {
 }
 
 impl Instruction {
+    /// Where control goes after this instruction, which sits at byte `offset`.
+    pub fn flow(&self, offset: usize) -> Flow {
+        let target = || {
+            // A branch's SIMM16 counts dwords from the next instruction.
+            let delta = self.field("SIMM16") as u16 as i16 as isize * 4;
+            (offset as isize + 4 + delta).try_into().unwrap_or(usize::MAX)
+        };
+        match self.name.unwrap_or("") {
+            "s_branch" => Flow::Jump(target()),
+            n if n.starts_with("s_cbranch_") => Flow::Branch(target()),
+            "s_endpgm" | "s_endpgm_saved" | "s_endpgm_ordered_ps_done" | "s_setpc_b64" | "s_rfe_b64" => Flow::Stop,
+            _ => Flow::Next,
+        }
+    }
+
     fn word(&self, i: usize) -> u64 {
         u64::from(self.words.get(i).copied().unwrap_or(0))
     }
@@ -245,7 +406,7 @@ impl Instruction {
         let v = self.field(field);
         let mut count = u64::from(size.div_ceil(32).max(1));
         let text = match (field, ty) {
-            ("", "VCC") => "vcc_lo".into(),
+            ("", "VCC") => if self.wave64 { "vcc" } else { "vcc_lo" }.into(),
             // v_cmpx writes EXEC, which LLVM leaves out.
             ("", _) => return None,
             (_, "SIMM16") if f == "sopk" => format!("{v:#x}"),
@@ -267,7 +428,8 @@ impl Instruction {
             }
             (_, "SENDMSG") => sendmsg(v),
             // shortcut: printed as raw values; LLVM names these (depctr...).
-            (_, "WAITCNT_DEPCTR" | "CLAUSE" | "VERSION" | "PARAM") => format!("{v:#x}"),
+            (_, "WAITCNT_DEPCTR") => depctr(v),
+            (_, "CLAUSE" | "VERSION" | "PARAM") => format!("{v:#x}"),
             (_, "VGPR") if f == "exp" => {
                 let n = field.trim_start_matches("VSRC").parse::<u64>().unwrap_or(0);
                 if self.field("EN") >> n & 1 == 0 { "off".into() } else { register(256 + v, 1) }
@@ -303,8 +465,8 @@ impl Instruction {
                     v += 256;
                 }
                 match (f, field) {
-                    // shortcut: wave32 only; a lane mask is one SGPR (wave64 would be two).
-                    ("vop1" | "vop2" | "vopc" | "vop3" | "vop3p", _) if matches!(ty, "VCC" | "SREG" | "SDST") => count = 1,
+                    // A lane mask is one SGPR in wave32; the spec sizes it for wave64.
+                    ("vop1" | "vop2" | "vopc" | "vop3" | "vop3p", _) if !self.wave64 && matches!(ty, "VCC" | "SREG" | "SDST") => count = 1,
                     ("mubuf" | "mtbuf", "VDATA") => count += self.field("TFE"),
                     ("mimg", "VDATA") => {
                         let n = if name.starts_with("image_gather4") { 4 } else { self.field("DMASK").count_ones().max(1) as u64 };
@@ -439,11 +601,11 @@ impl Instruction {
             }
             f @ ("mubuf" | "mtbuf") => {
                 if f == "mtbuf" {
-                    // shortcut: only BUF_FMT_32_FLOAT is named; others print as numbers.
-                    m.push(match self.field("FORMAT") {
-                        22 => "format:[BUF_FMT_32_FLOAT]".into(),
-                        n => format!("format:{n}"),
-                    });
+                    // BUF_FMT_8_UNORM (1) is the default, which LLVM leaves out.
+                    match self.field("FORMAT") {
+                        1 => {}
+                        n => m.push(buffer_format(n).map_or(format!("format:{n}"), |f| format!("format:[{f}]"))),
+                    }
                 }
                 flag(&mut m, "IDXEN", "idxen");
                 flag(&mut m, "OFFEN", "offen");
@@ -516,6 +678,39 @@ mod tests {
     fn name(words: &[u32]) -> (&'static str, Option<&'static str>, usize) {
         let i = decode(words).unwrap();
         (i.format.name, i.name, i.dwords)
+    }
+
+    fn assemble(words: &[u32]) -> Vec<u8> {
+        words.iter().flat_map(|w| w.to_le_bytes()).collect()
+    }
+
+    #[test]
+    fn branches_split_blocks() {
+        // 0: s_cbranch_execz 1 (to 8)   4: v_add_f32 v0, v1, v2
+        // 8: s_branch -3 (to 0)        12: s_endpgm (unreachable)
+        let lines = disassemble(&assemble(&[0xBF88_0001, 0x0600_0501, 0xBF82_FFFD, 0xBF81_0000]), false);
+        assert_eq!(lines[0].flow, Flow::Branch(8));
+        assert_eq!(lines[2].flow, Flow::Jump(0));
+        let b = blocks(&lines, &[]);
+        let shape: Vec<_> = b.iter().map(|b| (b.lines.clone(), b.successors.clone())).collect();
+        assert_eq!(shape, [(0..1, vec![2, 1]), (1..2, vec![2]), (2..3, vec![0]), (3..4, vec![])]);
+    }
+
+    #[test]
+    fn wave64_lane_masks_are_pairs() {
+        // v_cmp_eq_f32_e32 vcc, v0, v1; v_cmp_eq_f32_e64 s[0:1], v0, v1
+        let lines = disassemble(&assemble(&[0x7C04_0300, 0xD402_0000, 0x0002_0300]), true);
+        assert_eq!(lines[0].text, "v_cmp_eq_f32_e32 vcc, v0, v1");
+        assert_eq!(lines[1].text, "v_cmp_eq_f32_e64 s[0:1], v0, v1");
+    }
+
+    #[test]
+    fn named_operands() {
+        assert_eq!(buffer_format(22).as_deref(), Some("BUF_FMT_32_FLOAT"));
+        assert_eq!(buffer_format(77).as_deref(), Some("BUF_FMT_32_32_32_32_FLOAT"));
+        assert_eq!(buffer_format(78), None);
+        assert_eq!(depctr(0x0FFF), "depctr_va_vdst(0)");
+        assert_eq!(depctr(0x0000), "0x0");
     }
 
     #[test]
